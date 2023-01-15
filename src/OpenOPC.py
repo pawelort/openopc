@@ -1189,12 +1189,12 @@ class client():
          scode = exc[5]
 
          try:
-            opc_err_str = unicode(self._opc.GetErrorString(scode)).strip('\r\n')
+            opc_err_str = str(self._opc.GetErrorString(scode)).strip('\r\n')
          except:
             opc_err_str = None
 
          try:
-            com_err_str = unicode(pythoncom.GetScodeString(scode)).strip('\r\n')
+            com_err_str = str(pythoncom.GetScodeString(scode)).strip('\r\n')
          except:
             com_err_str = None
 
