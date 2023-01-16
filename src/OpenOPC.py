@@ -183,6 +183,8 @@ class client():
       self._group_server_handles = {}
       self._group_handles_tag = {}
       self._group_hooks = {}
+      self._write_group = 'OpenOPC_write_gr'
+      self._write_tags = {}
       self._open_serv = None
       self._open_self = None
       self._open_host = None
@@ -260,6 +262,8 @@ class client():
       self._group_server_handles = {}
       self._group_handles_tag = {}
       self._group_hooks = {}
+      self._write_group = 'OpenOPC_write_gr'
+      self._write_tags = {}
 
    def GUID(self):
       return self._open_guid
@@ -677,6 +681,69 @@ class client():
             results.append((t, value, quality, time_str))
     
       return results
+
+   def new_write(self, tag_value_pairs, size=None, pause=0, include_error=False):
+
+      def add_items(tags):
+         names = list(tags)
+         names.insert(0, 0)
+
+         if self.trace: self.trace('Validate(%s)' % tags2trace(names))
+
+         try:
+            errors = opc_items.Validate(len(names) - 1, names)
+         except:
+            errors = []
+
+         valid_tags = []
+         client_handles = []
+
+
+         for i, tag in enumerate(tags):
+            if errors[i] == 0:
+               valid_tags.append(tag)
+               client_handles.append(i + 1)
+               self._write_tags[tag] = tag
+            elif include_error:
+               error_msgs[tag] = self._opc.GetErrorString(errors[i])
+
+            if self.trace and errors[i] != 0: self.trace('%s failed validation' % tag)
+
+         client_handles.insert(0, 0)
+         valid_tags.insert(0, 0)
+
+         if self.trace: self.trace('AddItems(%s)' % tags2trace(valid_tags))
+
+         try:
+            server_handles, errors = opc_items.AddItems(len(client_handles) - 1, valid_tags, client_handles)
+         except:
+            server_handles = []
+            errors = []
+
+         del valid_tags[0]
+
+         for i, tag in enumerate(valid_tags):
+            if errors[i] == 0:
+               self._write_tags[tag] = server_handles[i]
+            else:
+               if include_error:
+                  error_msgs[tag] = self._opc.GetErrorString(errors[i])
+               del valid_tags[i]
+               del server_handles[i]
+
+         return valid_tags, server_handles
+
+      def remove_items(tags):
+         if self.trace: self.trace('RemoveItems(%s)' % tags2trace([''] + tags))
+         server_handles = [self._write_tags[tag] for tag in tags]
+         server_handles.insert(0, 0)
+
+         try:
+            errors = opc_items.Remove(len(server_handles) - 1, server_handles)
+         except pythoncom.com_error as err:
+            error_msg = 'RemoveItems: %s' % self._get_error_str(err)
+            raise OPCError(error_msg)
+
 
    def iwrite(self, tag_value_pairs, size=None, pause=0, include_error=False):
       """Iterable version of write()"""
