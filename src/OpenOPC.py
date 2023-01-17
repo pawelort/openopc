@@ -691,7 +691,7 @@ class client():
          if self.trace: self.trace('Validate(%s)' % tags2trace(names))
 
          try:
-            errors = opc_items.Validate(len(names) - 1, names)
+            errors = opc_write_group_items.Validate(len(names) - 1, names)
          except:
             errors = []
 
@@ -720,14 +720,14 @@ class client():
             server_handles = []
             errors = []
 
-         # del valid_tags[0]
-         #
-         # for i, tag in enumerate(valid_tags):
-         #    if errors[i] == 0:
-         #       self._write_tags[tag] = server_handles[i]
-         #    else:
-         #       if include_error:
-         #          error_msgs[tag] = self._opc.GetErrorString(errors[i])
+         del valid_tags[0]
+
+         for i, tag in enumerate(valid_tags):
+            if errors[i] == 0:
+               self._write_tags[tag] = server_handles[i]
+            else:
+               if include_error:
+                  error_msgs[tag] = self._opc.GetErrorString(errors[i])
          #       del valid_tags[i]
          #       del server_handles[i]
          #
@@ -739,293 +739,96 @@ class client():
          server_handles.insert(0, 0)
 
          try:
-            errors = opc_items.Remove(len(server_handles) - 1, server_handles)
+            opc_items.Remove(len(server_handles) - 1, server_handles)
          except pythoncom.com_error as err:
-            error_msg = 'RemoveItems: %s' % self._get_error_str(err)
-            raise OPCError(error_msg)
+            error_txt = 'RemoveItems: %s' % self._get_error_str(err)
+            raise OPCError(error_txt)
 
       def _valid_pair(pairs):
          if type(pairs) not in (list, tuple):
             raise TypeError("write(): 'tag_value_pairs' need to be (tag, value) tuple or a list of (tag,value) tuples")
-         single = True if len(pairs) == 1 else False
          for pair in pairs:
             if type(pair) in (list, tuple) and len(pair) == 2 and type(pair[0]) in (str, bytes):
                yield pair[0], pair[1]
             else:
                raise TypeError("write(): 'tag_value_pairs' need to be (tag, value) tuple or a list of (tag,value) tuples")
 
+      error_msgs = []
+
       tags_to_write = {tag: value for tag, value in _valid_pair(tag_value_pairs)}
-
-      opc_groups = self._opc.OPCGroups
-      try:
-         opc_write_group = opc_groups.GetOPCGroup(self._write_group)
-      except:
-         opc_write_group = opc_groups.Add(self._write_group)
-
-      opc_write_group_items = opc_write_group.OPCItems
-
-      if size:
-         name_groups = [dict(list(tags_to_write.items())[i:i+size]) for i in range(0, len(tags_to_write), size)]
-      else:
-         name_groups = [tags_to_write]
-
-      for gid, group in enumerate(name_groups):
-         if gid > 0 and pause > 0:
-            time.sleep(pause / 1000.0)
-         tags_to_add = {tag: value for tag, value in group.items() if tag not in self._write_tags.keys()}
-         tags_to_remove = [self._write_tags.get(tag) for tag in self._write_tags.keys() if
-                           tag not in group.keys()]
-
-         _add_items(tags_to_add.keys())
-         _remove_items(tags_to_remove)
-
-         write_pairs = [(tags_to_write.get(tag), server_value) for tag, server_value in self._write_tags.items()]
-         write_tags_server_handles, write_val = zip(*write_pairs)
-         write_tags_server_handles.insert(0, 0)
-         write_val.insert(0, 0)
-
-      if write_pairs > 1:
-         try:
-            errors = opc_write_group.SyncWrite(len(write_tags_server_handles) - 1, write_tags_server_handles, write_val)
-         except:
-            errors = []
-
-
-      if include_error:
-         sync = True
-
-      if sync:
-         update = -1
+      single = True if len(tag_value_pairs) == 1 else False
 
       try:
+
          self._update_tx_time()
          pythoncom.CoInitialize()
 
+         opc_groups = self._opc.OPCGroups
+         try:
+            opc_write_group = opc_groups.GetOPCGroup(self._write_group)
+         except:
+            opc_write_group = opc_groups.Add(self._write_group)
 
-         tags, single, valid = type_check(tags)
-         if not valid:
-            raise TypeError("iread(): 'tags' parameter must be a string or a list of strings")
+         opc_write_group_items = opc_write_group.OPCItems
 
-         if len(tags)
-         # Group exists
-         if group in self._groups and not rebuild:
-            num_groups = self._groups[group]
-            data_source = SOURCE_CACHE
-
-         # Group non-existant
+         if size:
+            name_groups = [dict(list(tags_to_write.items())[i:i+size]) for i in range(0, len(tags_to_write), size)]
          else:
-            if size:
-               # Break-up tags into groups of 'size' tags
-               tag_groups = [tags[i:i + size] for i in range(0, len(tags), size)]
-            else:
-               tag_groups = [tags]
+            name_groups = [tags_to_write]
 
-            num_groups = len(tag_groups)
-            data_source = SOURCE_DEVICE
+         for gid, group in enumerate(name_groups):
+            if gid > 0 and pause > 0:
+               time.sleep(pause / 1000.0)
 
-         results = []
+            tags_to_add = {tag: value for tag, value in group.items() if tag not in self._write_tags.keys()}
+            tags_to_remove = [tag for tag in self._write_tags.keys() if tag not in group.keys()]
 
-         for gid in range(num_groups):
-            if gid > 0 and pause > 0: time.sleep(pause / 1000.0)
+            _add_items(tags_to_add.keys())
+            _remove_items(tags_to_remove)
 
-            error_msgs = {}
-            opc_groups = self._opc.OPCGroups
-            opc_groups.DefaultGroupUpdateRate = update
+            write_pairs = [(tags_to_write.get(tag), server_handles) for tag, server_handles in self._write_tags.items()]
+            write_tags_server_handles, write_val = zip(*write_pairs)
+            write_tags_server_handles.insert(0, 0)
+            write_val.insert(0, 0)
 
-            # Anonymous group
-            if group == None:
+            if write_pairs > 1:
                try:
-                  if self.trace: self.trace('AddGroup()')
-                  opc_group = opc_groups.Add()
-               except pythoncom.com_error as err:
-                  error_msg = 'AddGroup: %s' % self._get_error_str(err)
-                  raise OPCError(error_msg)
-               sub_group = group
-               new_group = True
-            else:
-               sub_group = '%s.%d' % (group, gid)
-
-               # Existing named group
-               try:
-                  if self.trace: self.trace('GetOPCGroup(%s)' % sub_group)
-                  opc_group = opc_groups.GetOPCGroup(sub_group)
-                  new_group = False
-
-               # New named group
+                  errors = opc_write_group.SyncWrite(len(write_tags_server_handles) - 1, write_tags_server_handles, write_val)
                except:
-                  try:
-                     if self.trace: self.trace('AddGroup(%s)' % sub_group)
-                     opc_group = opc_groups.Add(sub_group)
-                  except pythoncom.com_error as err:
-                     error_msg = 'AddGroup: %s' % self._get_error_str(err)
-                     raise OPCError(error_msg)
-                  self._groups[str(group)] = len(tag_groups)
-                  new_group = True
+                  errors = []
 
-            opc_items = opc_group.OPCItems
-
-            if new_group:
-               opc_group.IsSubscribed = 1
-               opc_group.IsActive = 1
-               if not sync:
-                  if self.trace: self.trace('WithEvents(%s)' % opc_group.Name)
-                  global current_client
-                  current_client = self
-                  self._group_hooks[opc_group.Name] = win32com.client.WithEvents(opc_group, GroupEvents)
-
-               tags = tag_groups[gid]
-
-               valid_tags, server_handles = add_items(tags)
-
-               self._group_tags[sub_group] = tags
-               self._group_valid_tags[sub_group] = valid_tags
-
-            # Rebuild existing group
-            elif rebuild:
-               tags = tag_groups[gid]
-
-               valid_tags = self._group_valid_tags[sub_group]
-               add_tags = [t for t in tags if t not in valid_tags]
-               del_tags = [t for t in valid_tags if t not in tags]
-
-               if len(add_tags) > 0:
-                  valid_tags, server_handles = add_items(add_tags)
-                  valid_tags = self._group_valid_tags[sub_group] + valid_tags
-
-               if len(del_tags) > 0:
-                  remove_items(del_tags)
-                  valid_tags = [t for t in valid_tags if t not in del_tags]
-
-               self._group_tags[sub_group] = tags
-               self._group_valid_tags[sub_group] = valid_tags
-
-               if source == 'hybrid': data_source = SOURCE_DEVICE
-
-            # Existing group
-            else:
-               tags = self._group_tags[sub_group]
-               valid_tags = self._group_valid_tags[sub_group]
-               if sync:
-                  server_handles = [item.ServerHandle for item in opc_items]
-
-            tag_value = {}
-            tag_quality = {}
-            tag_time = {}
-            tag_error = {}
-
-            # Sync Read
-            if sync:
-               values = []
-               errors = []
-               qualities = []
-               timestamps = []
-
-               if len(valid_tags) > 0:
-                  server_handles.insert(0, 0)
-
-                  if source != 'hybrid':
-                     data_source = SOURCE_CACHE if source == 'cache' else SOURCE_DEVICE
-
-                  if self.trace: self.trace('SyncRead(%s)' % data_source)
-
-                  try:
-                     values, errors, qualities, timestamps = opc_group.SyncRead(data_source, len(server_handles) - 1,
-                                                                                server_handles)
-                  except pythoncom.com_error as err:
-                     error_msg = 'SyncRead: %s' % self._get_error_str(err)
-                     raise OPCError(error_msg)
-
-                  for i, tag in enumerate(valid_tags):
-                     tag_value[tag] = values[i]
-                     tag_quality[tag] = qualities[i]
-                     tag_time[tag] = timestamps[i]
-                     tag_error[tag] = errors[i]
-
-            # Async Read
-            else:
-               if len(valid_tags) > 0:
-                  if self._tx_id >= 0xFFFF:
-                     self._tx_id = 0
-                  self._tx_id += 1
-
-                  if source != 'hybrid':
-                     data_source = SOURCE_CACHE if source == 'cache' else SOURCE_DEVICE
-
-                  if self.trace: self.trace('AsyncRefresh(%s)' % data_source)
-
-                  try:
-                     opc_group.AsyncRefresh(data_source, self._tx_id)
-                  except pythoncom.com_error as err:
-                     error_msg = 'AsyncRefresh: %s' % self._get_error_str(err)
-                     raise OPCError(error_msg)
-
-                  tx_id = 0
-                  start = time.time() * 1000
-
-                  while tx_id != self._tx_id:
-                     now = time.time() * 1000
-                     if now - start > timeout:
-                        raise TimeoutError('Callback: Timeout waiting for data')
-
-                     if self.callback_queue.empty():
-                        pythoncom.PumpWaitingMessages()
-                     else:
-                        tx_id, handles, values, qualities, timestamps = self.callback_queue.get()
-
-                  for i, h in enumerate(handles):
-                     tag = self._group_handles_tag[sub_group][h]
-                     tag_value[tag] = values[i]
-                     tag_quality[tag] = qualities[i]
-                     tag_time[tag] = timestamps[i]
-
-            for tag in tags:
-               if tag in tag_value:
-                  if (not sync and len(valid_tags) > 0) or (sync and tag_error[tag] == 0):
-                     value = tag_value[tag]
-                     if type(value) == pywintypes.TimeType:
-                        value = str(value)
-                     quality = quality_str(tag_quality[tag])
-                     timestamp = str(tag_time[tag])
+            n = 0
+            for tag in group.keys():
+               if tag in self._write_tags.keys():
+                  if errors[n] == 0:
+                     status = 'Success'
                   else:
-                     value = None
-                     quality = 'Error'
-                     timestamp = None
-                  if include_error:
-                     error_msgs[tag] = self._opc.GetErrorString(tag_error[tag]).strip('\r\n')
+                     status = 'Error'
+                     if include_error:
+                        error_msgs[tag] = self._opc.GetErrorString(errors[n])
+                  n += 1
                else:
-                  value = None
-                  quality = 'Error'
-                  timestamp = None
-                  if include_error and not tag in error_msgs:
-                     error_msgs[tag] = ''
+                  status = 'Error'
+
+               # OPC servers often include newline and carriage return characters
+               # in their error message strings, so remove any found.
+               if include_error:  error_msgs[tag] = error_msgs[tag].strip('\r\n')
 
                if single:
                   if include_error:
-                     yield (value, quality, timestamp, error_msgs[tag])
+                     yield (status, error_msgs[tag])
                   else:
-                     yield (value, quality, timestamp)
+                     yield status
                else:
                   if include_error:
-                     yield (tag, value, quality, timestamp, error_msgs[tag])
+                     yield (tag, status, error_msgs[tag])
                   else:
-                     yield (tag, value, quality, timestamp)
-
-            if group == None:
-               try:
-                  if not sync and opc_group.Name in self._group_hooks:
-                     if self.trace: self.trace('CloseEvents(%s)' % opc_group.Name)
-                     self._group_hooks[opc_group.Name].close()
-
-                  if self.trace: self.trace('RemoveGroup(%s)' % opc_group.Name)
-                  opc_groups.Remove(opc_group.Name)
-
-               except pythoncom.com_error as err:
-                  error_msg = 'RemoveGroup: %s' % self._get_error_str(err)
-                  raise OPCError(error_msg)
+                     yield (tag, status)
 
       except pythoncom.com_error as err:
-         error_msg = 'read: %s' % self._get_error_str(err)
-         raise OPCError(error_msg)
+         error_txt = 'write: %s' % self._get_error_str(err)
+         raise OPCError(error_txt)
+
 
    def iwrite(self, tag_value_pairs, size=None, pause=0, include_error=False):
       """Iterable version of write()"""
