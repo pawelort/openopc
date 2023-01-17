@@ -715,7 +715,7 @@ class client():
          if self.trace: self.trace('AddItems(%s)' % tags2trace(valid_tags))
 
          try:
-            server_handles, errors = opc_items.AddItems(len(client_handles) - 1, valid_tags, client_handles)
+            server_handles, errors = opc_write_group_items.AddItems(len(client_handles) - 1, valid_tags, client_handles)
          except:
             server_handles = []
             errors = []
@@ -739,7 +739,7 @@ class client():
          server_handles.insert(0, 0)
 
          try:
-            opc_items.Remove(len(server_handles) - 1, server_handles)
+            opc_write_group_items.Remove(len(server_handles) - 1, server_handles)
          except pythoncom.com_error as err:
             error_txt = 'RemoveItems: %s' % self._get_error_str(err)
             raise OPCError(error_txt)
