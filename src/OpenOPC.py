@@ -5,6 +5,7 @@
 # Copyright (c) 2007-2012 Barry Barnreiter (barry_b@users.sourceforge.net)
 # Copyright (c) 2014 Anton D. Kachalov (mouse@yandex.ru)
 # Copyright (c) 2017 José A. Maita (jose.a.maita@gmail.com)
+# Copyright (c) 2023 Pawel Ortman (pawel.ort@gmail.com)
 #
 ###########################################################################
 
@@ -682,8 +683,8 @@ class client():
     
       return results
 
-   def new_write(self, tag_value_pairs, size=None, pause=0, include_error=True):
-
+   def iwrite(self, tag_value_pairs, size=None, pause=0, include_error=False):
+      """Iterable version of write() """
       def _add_items(tags):
          names = list(tags)
          names.insert(0, 0)
@@ -728,10 +729,6 @@ class client():
             else:
                if include_error:
                   error_msgs[tag] = self._opc.GetErrorString(errors[i])
-         #       del valid_tags[i]
-         #       del server_handles[i]
-         #
-         # return valid_tags
 
       def _remove_items(tags):
          if self.trace: self.trace('RemoveItems(%s)' % tags2trace([''] + tags))
@@ -799,11 +796,13 @@ class client():
                _remove_items(tags_to_remove)
 
             write_pairs = [[tags_to_write.get(tag), server_handles] for tag, server_handles in self._write_tags.items()]
-            write_val, write_tags_server_handles = map(list, zip(*write_pairs))
-            write_tags_server_handles.insert(0, 0)
-            write_val.insert(0, 0)
 
             if len(write_pairs) > 0:
+
+               write_val, write_tags_server_handles = map(list, zip(*write_pairs))
+               write_tags_server_handles.insert(0, 0)
+               write_val.insert(0, 0)
+
                try:
                   errors = opc_write_group.SyncWrite(len(write_tags_server_handles) - 1, write_tags_server_handles, write_val)
                except:
@@ -841,8 +840,7 @@ class client():
          error_txt = 'write: %s' % self._get_error_str(err)
          raise OPCError(error_txt)
 
-
-   def iwrite(self, tag_value_pairs, size=None, pause=0, include_error=False):
+   def iwrite_old(self, tag_value_pairs, size=None, pause=0, include_error=False):
       """Iterable version of write()"""
 
       try:
