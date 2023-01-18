@@ -739,24 +739,34 @@ class client():
          server_handles.insert(0, 0)
 
          try:
-            opc_write_group_items.Remove(len(server_handles) - 1, server_handles)
-         except pythoncom.com_error as err:
-            error_txt = 'RemoveItems: %s' % self._get_error_str(err)
-            raise OPCError(error_txt)
+            errors = opc_write_group_items.Remove(len(server_handles) - 1, server_handles)
+         except:
+            errors = []
+
+         for i, tag in enumerate(tags):
+            if errors[i] == 0:
+               del self._write_tags[tag]
+            else:
+               if include_error:
+                  error_msgs[tag] = self._opc.GetErrorString(errors[i])
 
       def _valid_pair(pairs):
-         if type(pairs) not in (list, tuple):
-            raise TypeError("write(): 'tag_value_pairs' need to be (tag, value) tuple or a list of (tag,value) tuples")
-         for pair in pairs:
-            if type(pair) in (list, tuple) and len(pair) == 2 and type(pair[0]) in (str, bytes):
-               yield pair[0], pair[1]
+         if type(pairs) in (list, tuple):
+            if type(pairs[0]) in (str, bytes):
+               yield pairs
             else:
-               raise TypeError("write(): 'tag_value_pairs' need to be (tag, value) tuple or a list of (tag,value) tuples")
+               for pair in pairs:
+                  if type(pair) in (list, tuple) and len(pair) == 2 and type(pair[0]) in (str, bytes):
+                     yield pair[0], pair[1]
+                  else:
+                     raise TypeError("write(): 'tag_value_pairs' need to be (tag, value) tuple or a list of (tag,value) tuples")
+         else:
+            raise TypeError("write(): 'tag_value_pairs' need to be (tag, value) tuple or a list of (tag,value) tuples")
 
-      error_msgs = []
+      error_msgs = {}
 
       tags_to_write = {tag: value for tag, value in _valid_pair(tag_value_pairs)}
-      single = True if len(tag_value_pairs) == 1 else False
+      single = True if len(tags_to_write) == 1 else False
 
       try:
 
@@ -783,15 +793,17 @@ class client():
             tags_to_add = {tag: value for tag, value in group.items() if tag not in self._write_tags.keys()}
             tags_to_remove = [tag for tag in self._write_tags.keys() if tag not in group.keys()]
 
-            _add_items(tags_to_add.keys())
-            _remove_items(tags_to_remove)
+            if len(tags_to_add.keys()) > 0:
+               _add_items(tags_to_add.keys())
+            if len(tags_to_remove) > 0:
+               _remove_items(tags_to_remove)
 
-            write_pairs = [(tags_to_write.get(tag), server_handles) for tag, server_handles in self._write_tags.items()]
-            write_tags_server_handles, write_val = zip(*write_pairs)
+            write_pairs = [[tags_to_write.get(tag), server_handles] for tag, server_handles in self._write_tags.items()]
+            write_val, write_tags_server_handles = map(list, zip(*write_pairs))
             write_tags_server_handles.insert(0, 0)
             write_val.insert(0, 0)
 
-            if write_pairs > 1:
+            if len(write_pairs) > 0:
                try:
                   errors = opc_write_group.SyncWrite(len(write_tags_server_handles) - 1, write_tags_server_handles, write_val)
                except:
@@ -812,7 +824,7 @@ class client():
 
                # OPC servers often include newline and carriage return characters
                # in their error message strings, so remove any found.
-               if include_error:  error_msgs[tag] = error_msgs[tag].strip('\r\n')
+               error_msgs[tag] = error_msgs.get(tag).strip('\r\n') if include_error and status == 'Error' else 'No Error'
 
                if single:
                   if include_error:
