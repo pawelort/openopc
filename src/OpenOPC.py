@@ -18,6 +18,7 @@ import socket
 import re
 import Pyro4.core
 from multiprocessing import Queue
+from collections import namedtuple
 
 __version__ = '1.2.0'
 
@@ -290,6 +291,121 @@ class client():
          # Remove this object from the open gateway service
          if self._open_serv and del_object:
             self._open_serv.release_client(self._open_self)
+
+   def new_iread(self, tags=None, group=None, size=None, pause=0, source='hybrid', update=-1, timeout=5000, sync=False, include_error=False, rebuild=False):
+      def _add_items(tags, opc_group_items, tag_subgroup, error_msgs):
+         names = list(tags)
+         names.insert(0, 0)
+         Tag_property = namedtuple("tag_property", "cl_handle, server_handle")
+
+         if self.trace: self.trace('Validate(%s)' % tags2trace(names))
+
+         try:
+            errors = opc_group_items.Validate(len(names) - 1, names)
+         except:
+            errors = []
+
+         valid_tags = []
+         client_handles = []
+         try:
+            cl_handle_max = max([tag_prop.cl_handle for tag_prop in tag_subgroup.values()]) + 1
+         except ValueError:
+            cl_handle_max = 0
+
+         for i, tag in enumerate(tags):
+            if errors[i] == 0:
+               valid_tags.append(tag)
+               client_handles.append(cl_handle_max)
+               cl_handle_max += 1
+            elif include_error:
+               error_msgs[tag] = self._opc.GetErrorString(errors[i])
+
+            if self.trace and errors[i] != 0: self.trace('%s failed validation' % tag)
+
+         client_handles.insert(0, 0)
+         valid_tags.insert(0, 0)
+
+         if self.trace: self.trace('AddItems(%s)' % tags2trace(valid_tags))
+
+         try:
+            server_handles, errors = opc_group_items.AddItems(len(client_handles) - 1, valid_tags, client_handles)
+         except:
+            server_handles = []
+            errors = []
+
+         del valid_tags[0]
+         del client_handles[0]
+
+         for i, tag in enumerate(valid_tags):
+            if errors[i] == 0:
+               self._write_tags[tag] = Tag_property(cl_handle=client_handles[i], server_handle=server_handles[i])
+            else:
+               if include_error:
+                  error_msgs[tag] = self._opc.GetErrorString(errors[i])
+
+      def _remove_items(tags, opc_group_items, tag_subgroup, error_msgs):
+         if self.trace: self.trace('RemoveItems(%s)' % tags2trace([''] + tags))
+         server_handles = [tag_subgroup.get(tag).server_handle for tag in tags]
+         server_handles.insert(0, 0)
+
+         try:
+            errors = opc_group_items.Remove(len(server_handles) - 1, server_handles)
+         except:
+            errors = []
+
+         for i, tag in enumerate(tags):
+            if errors[i] == 0:
+               del tag_subgroup[tag]
+            else:
+               if include_error:
+                  error_msgs[tag] = self._opc.GetErrorString(errors[i])
+
+      try:
+         self._update_tx_time()
+         pythoncom.CoInitialize()
+
+         if include_error:
+            sync = True
+
+         if sync:
+            update = -1
+
+         error_msgs = {}
+         opc_groups = self._opc.OPCGroups
+
+         tags, single, valid = type_check(tags)
+         if not valid:
+            raise TypeError("iread(): 'tags' parameter must be a string or a list of strings")
+
+         if size:
+            # Break-up tags into groups of 'size' tags
+            tag_groups = [tags[i:i + size] for i in range(0, len(tags), size)]
+         else:
+            tag_groups = [tags]
+
+         num_groups = len(tag_groups)
+         data_source = SOURCE_DEVICE
+
+         if group == None:
+            pass
+
+         elif group in self._groups:
+            pass
+
+         else:
+            #creation of new group
+            self._groups[group] = {}
+            for group_id in range(num_groups):
+               opc_group = opc_groups.Add("{}.{}".format(group, str(group_id)))
+               opc_group_items = opc_group.OPCItems
+               self._groups[group][group_id] = {}
+               tag_subgroup = self._groups[group][group_id]
+               _add_items(tag_groups[group_id], opc_group_items, tag_subgroup, error_msgs)
+
+
+
+         # read synch
+         # or read asynch
 
    def iread(self, tags=None, group=None, size=None, pause=0, source='hybrid', update=-1, timeout=5000, sync=False, include_error=False, rebuild=False):
       """Iterable version of read()"""
