@@ -338,7 +338,7 @@ class client():
 
          for i, tag in enumerate(valid_tags):
             if errors[i] == 0:
-               self._write_tags[tag] = Tag_property(cl_handle=client_handles[i], server_handle=server_handles[i])
+               tag_subgroup[tag] = Tag_property(cl_handle=client_handles[i], server_handle=server_handles[i])
             else:
                if include_error:
                   error_msgs[tag] = self._opc.GetErrorString(errors[i])
@@ -360,15 +360,12 @@ class client():
                if include_error:
                   error_msgs[tag] = self._opc.GetErrorString(errors[i])
 
+      if include_error:
+         sync = True
+
       try:
          self._update_tx_time()
          pythoncom.CoInitialize()
-
-         if include_error:
-            sync = True
-
-         if sync:
-            update = -1
 
          error_msgs = {}
          opc_groups = self._opc.OPCGroups
@@ -384,28 +381,194 @@ class client():
             tag_groups = [tags]
 
          num_groups = len(tag_groups)
-         data_source = SOURCE_DEVICE
+         new_group = False if group in self._groups else True
 
-         if group == None:
-            pass
+         for group_id, subgroup in enumerate(tag_groups):
+            if group_id > 0 and pause > 0: time.sleep(pause / 1000.0)
 
-         elif group in self._groups:
-            pass
+            if group == None:
+               if sync == False:
+                  try:
+                     opc_group = opc_groups.GetOPCGroup("Default_async_read_gr")
+                  except:
+                     opc_group = opc_groups.Add("Default_async_read_gr")
+                     if self.trace: self.trace('WithEvents(%s)' % opc_group.Name)
+                     global current_client
+                     current_client = self
+                     self._group_hooks[opc_group.Name] = win32com.client.WithEvents(opc_group, GroupEvents)
+                     opc_group.IsSubscribed = True
+                     opc_group.IsActive = True
+                  self._groups["Default_async_read_gr"] = {}
+                  read_group = self._groups["Default_async_read_gr"]
 
-         else:
-            #creation of new group
-            self._groups[group] = {}
-            for group_id in range(num_groups):
+               else:
+                  try:
+                     opc_group = opc_groups.GetOPCGroup("Default_sync_read_gr")
+                  except:
+                     opc_group = opc_groups.Add("Default_sync_read_gr")
+                     opc_group.IsSubscribed = True
+                     opc_group.IsActive = True
+                  self._groups["Default_sync_read_gr"] = {}
+                  read_group = self._groups["Default_sync_read_gr"]
+
+               opc_group.UpdateRate = update
+               opc_group_items = opc_group.OPCItems
+               tags_to_add = [tag for tag in subgroup if tag not in read_group.keys()]
+               tags_to_remove = [tag for tag in read_group.keys() if tag not in subgroup]
+
+               if len(tags_to_add) > 0:
+                  _add_items(tags_to_add, opc_group_items, read_group, error_msgs)
+               if len(tags_to_remove) > 0:
+                  _remove_items(tags_to_add, opc_group_items, read_group, error_msgs)
+
+               data_source = SOURCE_CACHE if len(tags_to_add) == 0 and len(tags_to_remove) ==0 else SOURCE_DEVICE
+
+            elif not new_group:
+               if rebuild:
+                  try:
+                     read_group = self._groups[group][group_id]
+                     opc_group = opc_groups.GetOPCGroup("{}.{}".format(group, str(group_id)))
+                  except:
+                     self._groups[group][group_id] = {}
+                     read_group = self._groups[group][group_id]
+                     opc_group = opc_groups.Add("{}.{}".format(group, str(group_id)))
+
+                  opc_group_items = opc_group.OPCItems
+                  tags_to_add = [tag for tag in subgroup if tag not in read_group.keys()]
+                  tags_to_remove = [tag for tag in read_group.keys() if tag not in subgroup]
+
+                  if len(tags_to_add) > 0:
+                     _add_items(tags_to_add, opc_group_items, read_group, error_msgs)
+                  if len(tags_to_remove) > 0:
+                     _remove_items(tags_to_add, opc_group_items, read_group, error_msgs)
+                  data_source = SOURCE_DEVICE
+               else:
+                  opc_group = opc_groups.GetOPCGroup("{}.{}".format(group, str(group_id)))
+                  opc_group_items = opc_group.OPCItems
+                  data_source = SOURCE_CACHE
+            else:
+               #creation of new group
+               if self._groups.get(group, True):
+                  self._groups[group] = {}
+
+               # adding subgroups
                opc_group = opc_groups.Add("{}.{}".format(group, str(group_id)))
+               if sync == False:
+                  if self.trace: self.trace('WithEvents(%s)' % opc_group.Name)
+                  global current_client
+                  current_client = self
+                  self._group_hooks[opc_group.Name] = win32com.client.WithEvents(opc_group, GroupEvents)
+               opc_group.IsSubscribed = True
+               opc_group.IsActive = True
+               opc_group.UpdateRate = update
                opc_group_items = opc_group.OPCItems
                self._groups[group][group_id] = {}
-               tag_subgroup = self._groups[group][group_id]
-               _add_items(tag_groups[group_id], opc_group_items, tag_subgroup, error_msgs)
+               read_group = self._groups[group][group_id]
+               _add_items(subgroup, opc_group_items, read_group, error_msgs)
+               data_source = SOURCE_DEVICE
 
+            tag_value = {}
+            tag_quality = {}
+            tag_time = {}
+            tag_error = {}
 
+            if len(read_group.keys()) > 0:
+               # Sync Read
+               if sync:
+                  tags_to_read = {tag: tag_prop.server_handle for tag, tag_prop in read_group.items()}
+                  server_handles = tags_to_read.values()
+                  server_handles.insert(0, 0)
 
-         # read synch
-         # or read asynch
+                  if source != 'hybrid':
+                     data_source = SOURCE_CACHE if source == 'cache' else SOURCE_DEVICE
+
+                  if self.trace: self.trace('SyncRead(%s)' % data_source)
+
+                  try:
+                     values, errors, qualities, timestamps = opc_group.SyncRead(data_source, len(server_handles) - 1,
+                                                                                server_handles)
+                  except pythoncom.com_error as err:
+                     error_msg = 'SyncRead: %s' % self._get_error_str(err)
+                     raise OPCError(error_msg)
+
+                  for i, tag in enumerate(tags_to_read.keys()):
+                     tag_value[tag] = values[i]
+                     tag_quality[tag] = qualities[i]
+                     tag_time[tag] = timestamps[i]
+                     tag_error[tag] = errors[i]
+
+            # Async Read
+               else:
+                  tags_to_read = {tag_prop.cl_handle: tag for tag, tag_prop in read_group.items()}
+                  if self._tx_id >= 0xFFFF:
+                     self._tx_id = 0
+                  self._tx_id += 1
+
+                  if source != 'hybrid':
+                     data_source = SOURCE_CACHE if source == 'cache' else SOURCE_DEVICE
+
+                  if self.trace: self.trace('AsyncRefresh(%s)' % data_source)
+
+                  try:
+                     opc_group.AsyncRefresh(data_source, self._tx_id)
+                  except pythoncom.com_error as err:
+                     error_msg = 'AsyncRefresh: %s' % self._get_error_str(err)
+                     raise OPCError(error_msg)
+
+                  tx_id = 0
+                  start = time.time() * 1000
+
+                  while tx_id != self._tx_id:
+                     now = time.time() * 1000
+                     if now - start > timeout:
+                        raise TimeoutError('Callback: Timeout waiting for data')
+
+                     if self.callback_queue.empty():
+                        pythoncom.PumpWaitingMessages()
+                     else:
+                        tx_id, handles, values, qualities, timestamps = self.callback_queue.get()
+
+                  for i, cl_handle in enumerate(handles):
+                     tag = tags_to_read.get(cl_handle)
+                     tag_value[tag] = values[i]
+                     tag_quality[tag] = qualities[i]
+                     tag_time[tag] = timestamps[i]
+
+         for tag in subgroup:
+            if tag in tag_value:
+               if (not sync and len(read_group.keys()) > 0) or (sync and tag_error[tag] == 0):
+                  value = tag_value[tag]
+                  if type(value) == pywintypes.TimeType:
+                     value = str(value)
+                  quality = quality_str(tag_quality[tag])
+                  timestamp = str(tag_time[tag])
+               else:
+                  value = None
+                  quality = 'Error'
+                  timestamp = None
+               if include_error:
+                  error_msgs[tag] = self._opc.GetErrorString(tag_error[tag]).strip('\r\n')
+            else:
+               value = None
+               quality = 'Error'
+               timestamp = None
+               if include_error and not tag in error_msgs:
+                  error_msgs[tag] = ''
+
+            if single:
+               if include_error:
+                  yield (value, quality, timestamp, error_msgs[tag])
+               else:
+                  yield (value, quality, timestamp)
+            else:
+               if include_error:
+                  yield (tag, value, quality, timestamp, error_msgs[tag])
+               else:
+                  yield (tag, value, quality, timestamp)
+
+      except pythoncom.com_error as err:
+         error_msg = 'read: %s' % self._get_error_str(err)
+         raise OPCError(error_msg)
 
    def iread(self, tags=None, group=None, size=None, pause=0, source='hybrid', update=-1, timeout=5000, sync=False, include_error=False, rebuild=False):
       """Iterable version of read()"""
@@ -611,7 +774,7 @@ class client():
             tag_error = {}
                
             # Sync Read
-            if sync:   
+            if sync:
                values = []
                errors = []
                qualities = []
