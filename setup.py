@@ -9,7 +9,7 @@ setup(
     maintainer_email = 'michal@trivas.pl',
     name="OpenOPC-Python3x",
     package_dir={'':'src'},
-    py_modules=['OpenOPC'],
+    py_modules=['OpenOPC', 'SystemHealth'],
     url='https://github.com/mkwiatkowski/openopc',
-    version="1.3.1",
+    version="1.3.2",
 )
