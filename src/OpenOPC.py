@@ -317,8 +317,10 @@ class client():
                valid_tags.append(tag)
                client_handles.append(cl_handle_max)
                cl_handle_max += 1
-            elif include_error:
-               error_msgs[tag] = self._opc.GetErrorString(errors[i])
+            else:
+               tag_subgroup[tag] = Tag_property(cl_handle=-1, server_handle=-1)
+               if include_error:
+                  error_msgs[tag] = self._opc.GetErrorString(errors[i])
 
             if self.trace and errors[i] != 0: self.trace('%s failed validation' % tag)
 
@@ -345,7 +347,14 @@ class client():
 
       def _remove_items(tags, opc_group_items, tag_subgroup, error_msgs):
          if self.trace: self.trace('RemoveItems(%s)' % tags2trace([''] + tags))
-         server_handles = [tag_subgroup.get(tag).server_handle for tag in tags]
+         valid_tags_to_remove = []
+         for i, tag in enumerate(tags):
+            if tag_subgroup.get(tag).server_handle == -1:
+               del tag_subgroup[tag]
+            else:
+               valid_tags_to_remove.append(tag)
+
+         server_handles = [tag_subgroup.get(tag).server_handle for tag in valid_tags_to_remove]
          server_handles.insert(0, 0)
 
          try:
@@ -353,7 +362,7 @@ class client():
          except:
             errors = []
 
-         for i, tag in enumerate(tags):
+         for i, tag in enumerate(valid_tags_to_remove):
             if errors[i] == 0:
                del tag_subgroup[tag]
             else:
@@ -373,7 +382,7 @@ class client():
 
          if group in self._groups.keys() and tags == None:
             tag_groups = [list(tags_dict.keys()) for tags_dict in self._groups[group].values()]
-            single = False if len(tag_groups) > 1 else True
+            single = False
          else:
             tags, single, valid = type_check(tags)
             if not valid:
@@ -472,16 +481,17 @@ class client():
             tag_quality = {}
             tag_time = {}
             tag_error = {}
+            valid_tags_to_read = len([tag for tag, tag_prop in read_group.items() if tag_prop.server_handle != -1])
+            if valid_tags_to_read > 0:
+               if source != 'hybrid':
+                  data_source = SOURCE_CACHE if source == 'cache' else SOURCE_DEVICE
 
-            if len(read_group.keys()) > 0:
                # Sync Read
                if sync:
-                  tags_to_read = {tag: tag_prop.server_handle for tag, tag_prop in read_group.items()}
+                  tags_to_read = {tag: tag_prop.server_handle for tag, tag_prop in read_group.items() if
+                                  tag_prop.server_handle != -1}
                   server_handles = list(tags_to_read.values())
                   server_handles.insert(0, 0)
-
-                  if source != 'hybrid':
-                     data_source = SOURCE_CACHE if source == 'cache' else SOURCE_DEVICE
 
                   if self.trace: self.trace('SyncRead(%s)' % data_source)
 
@@ -501,13 +511,11 @@ class client():
 
                # Async Read
                else:
-                  tags_to_read = {tag_prop.cl_handle: tag for tag, tag_prop in read_group.items()}
+                  tags_to_read = {tag_prop.cl_handle: tag for tag, tag_prop in read_group.items() if
+                                  tag_prop.cl_handle != -1}
                   if self._tx_id >= 0xFFFF:
                      self._tx_id = 0
                   self._tx_id += 1
-
-                  if source != 'hybrid':
-                     data_source = SOURCE_CACHE if source == 'cache' else SOURCE_DEVICE
 
                   if self.trace: self.trace('AsyncRefresh(%s)' % data_source)
 
