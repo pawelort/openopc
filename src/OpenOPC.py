@@ -180,13 +180,7 @@ class client():
       self.opc_host = None
       self.client_name = client_name
       self._groups = {}
-      self._group_tags = {}
-      self._group_valid_tags = {}
-      self._group_server_handles = {}
-      self._group_handles_tag = {}
       self._group_hooks = {}
-      self._write_group = 'OpenOPC_write_gr'
-      self._write_tags = {}
       self._open_serv = None
       self._open_self = None
       self._open_host = None
@@ -259,13 +253,7 @@ class client():
       # On reconnect we need to remove the old group names from OpenOPC's internal
       # cache since they are now invalid
       self._groups = {}
-      self._group_tags = {}
-      self._group_valid_tags = {}
-      self._group_server_handles = {}
-      self._group_handles_tag = {}
       self._group_hooks = {}
-      self._write_group = 'OpenOPC_write_gr'
-      self._write_tags = {}
 
    def GUID(self):
       return self._open_guid
@@ -652,7 +640,8 @@ class client():
                                                      write_tags_server_handles, write_val)
                except:
                   errors = []
-
+            else:
+               valid_write_tags = []
             for tag in subgroup.keys():
                if tag in valid_write_tags:
                   n = valid_write_tags.index(tag)
@@ -711,38 +700,29 @@ class client():
          pythoncom.CoInitialize()
          opc_groups = self._opc.OPCGroups
 
-         if type(groups) in (str,bytes):
+         if type(groups) in (str, bytes):
             groups = [groups]
-            single = True
-         else:
-            single = False
-            
-         status = []
 
-         for group in groups:                
-            if group in self._groups:
-               for i in range(self._groups[group]):
-                  sub_group = '%s.%d' % (group, i)
-                  
-                  if sub_group in self._group_hooks:
-                     if self.trace: self.trace('CloseEvents(%s)' % sub_group)
-                     self._group_hooks[sub_group].close()
+         for group in groups:
+            if group in self._groups.keys():
+               for subgroup in self._groups.get(group):
+                  subgroup_name = '{}.{}'.format(group, str(subgroup))
 
+                  if subgroup_name in self._group_hooks:
+                     if self.trace: self.trace('CloseEvents{}'.format(subgroup_name))
+                     self._group_hooks[subgroup_name].close()
+                     del self._group_hooks[subgroup_name]
                   try:
-                     if self.trace: self.trace('RemoveGroup(%s)' % sub_group)
-                     errors = opc_groups.Remove(sub_group)
+                     if self.trace: self.trace('RemoveGroup{}'.format(subgroup_name))
+                     opc_groups.Remove(subgroup_name)
                   except pythoncom.com_error as err:
-                     error_msg = 'RemoveGroup: %s' % self._get_error_str(err)
+                     error_msg = 'RemoveGroup: {}'.format(self._get_error_str(err))
                      raise OPCError(error_msg)
-                     
-                  del(self._group_tags[sub_group])
-                  del(self._group_valid_tags[sub_group])
-                  del(self._group_handles_tag[sub_group])
-                  del(self._group_server_handles[sub_group])
-               del(self._groups[group])
+
+               del self._groups[group]
 
       except pythoncom.com_error as err:
-         error_msg = 'remove: %s' % self._get_error_str(err)
+         error_msg = 'remove: {}'.format(self._get_error_str(err))
          raise OPCError(error_msg)
       
    def iproperties(self, tags, id=None):
