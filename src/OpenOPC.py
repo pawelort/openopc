@@ -1002,8 +1002,7 @@ class client():
    def ping(self):
       """Check if we are still talking to the OPC server"""
       try:
-         # Convert OPC server time to milliseconds
-         opc_serv_time = int(float(self._opc.CurrentTime) * 1000000.0)
+         opc_serv_time = self._opc.CurrentTime
          if opc_serv_time == self._prev_serv_time:
             return False
          else:
